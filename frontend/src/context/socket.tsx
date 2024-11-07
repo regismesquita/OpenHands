@@ -89,7 +89,10 @@ function SocketProvider({ children }: SocketProviderProps) {
       if (wsReconnectRetries.current) {
         wsReconnectRetries.current -= 1;
         const token = localStorage.getItem("token");
-        setTimeout(() => start({ ...(options || {}), token }), 1);
+        setTimeout(() => {
+          console.log("RECONNECTING...");
+          start({ ...(options || {}), token });
+        }, 1000);
       }
     });
 

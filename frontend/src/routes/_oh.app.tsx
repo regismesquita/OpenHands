@@ -49,6 +49,7 @@ import { clearJupyter } from "#/state/jupyterSlice";
 import { FilesProvider } from "#/context/files";
 import { ErrorObservation } from "#/types/core/observations";
 import { ChatInterface } from "#/components/chat-interface";
+import { cn } from "#/utils/utils";
 
 interface ServerError {
   error: boolean | string;
@@ -115,11 +116,13 @@ export const clientAction = async ({ request }: ClientActionFunctionArgs) => {
 };
 
 function App() {
+  console.log("render app");
   const dispatch = useDispatch();
   const { files, importedProjectZip } = useSelector(
     (state: RootState) => state.initalQuery,
   );
-  const { start, send, setRuntimeIsInitialized, runtimeActive } = useSocket();
+  const { start, send, setRuntimeIsInitialized, runtimeIsInitialized } =
+    useSocket();
   const { settings, token, ghToken, repo, q, lastCommit } =
     useLoaderData<typeof clientLoader>();
   const fetcher = useFetcher();
@@ -156,21 +159,32 @@ function App() {
     );
   };
 
+  const doSendInitialQuery = React.useRef<boolean>(true);
+
   const sendInitialQuery = (query: string, base64Files: string[]) => {
     const timestamp = new Date().toISOString();
     send(createChatMessage(query, base64Files, timestamp));
   };
 
-  const handleOpen = React.useCallback(() => {
-    const initEvent = {
-      action: ActionType.INIT,
-      args: settings,
-    };
-    send(JSON.stringify(initEvent));
+  const handleOpen = React.useCallback(
+    (event: Event, isNewSession: boolean) => {
+      if (!isNewSession) {
+        dispatch(clearMessages());
+        dispatch(clearTerminal());
+        dispatch(clearJupyter());
+      }
+      doSendInitialQuery.current = isNewSession;
+      const initEvent = {
+        action: ActionType.INIT,
+        args: settings,
+      };
+      send(JSON.stringify(initEvent));
 
-    // display query in UI, but don't send it to the server
-    if (q) addIntialQueryToChat(q, files);
-  }, [settings]);
+      // display query in UI, but don't send it to the server
+      if (q && isNewSession) addIntialQueryToChat(q, files);
+    },
+    [settings],
+  );
 
   const handleMessage = React.useCallback(
     (message: MessageEvent<WebSocket.Data>) => {
@@ -213,7 +227,7 @@ function App() {
         isAgentStateChange(parsed) &&
         parsed.extras.agent_state === AgentState.INIT
       ) {
-        setRuntimeIsInitialized();
+        setRuntimeIsInitialized(true);
 
         // handle new session
         if (!token) {
@@ -228,7 +242,7 @@ function App() {
             additionalInfo = `Files have been uploaded. Please check the /workspace for files.`;
           }
 
-          if (q) {
+          if (q && doSendInitialQuery.current) {
             if (additionalInfo) {
               sendInitialQuery(`${q}\n\n[${additionalInfo}]`, files);
             } else {
@@ -260,15 +274,15 @@ function App() {
   });
 
   React.useEffect(() => {
-    if (runtimeActive && userId && ghToken) {
+    if (runtimeIsInitialized && userId && ghToken) {
       // Export if the user valid, this could happen mid-session so it is handled here
       send(getGitHubTokenCommand(ghToken));
     }
-  }, [userId, ghToken, runtimeActive]);
+  }, [userId, ghToken, runtimeIsInitialized]);
 
   React.useEffect(() => {
     (async () => {
-      if (runtimeActive && importedProjectZip) {
+      if (runtimeIsInitialized && importedProjectZip) {
         // upload files action
         try {
           const blob = base64ToBlob(importedProjectZip);
@@ -282,7 +296,7 @@ function App() {
         }
       }
     })();
-  }, [runtimeActive, importedProjectZip]);
+  }, [runtimeIsInitialized, importedProjectZip]);
 
   const {
     isOpen: securityModalIsOpen,
@@ -294,6 +308,15 @@ function App() {
     <div className="flex flex-col h-full gap-3">
       <div className="flex h-full overflow-auto gap-3">
         <Container className="w-[390px] max-h-full relative">
+          <div
+            className={cn(
+              "w-2 h-2 rounded-full border",
+              "absolute left-3 top-3",
+              runtimeIsInitialized
+                ? "bg-green-800 border-green-500"
+                : "bg-red-800 border-red-500",
+            )}
+          />
           <ChatInterface />
         </Container>
 

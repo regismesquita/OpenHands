@@ -100,6 +100,9 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
     const { data } = event;
     const message = JSON.parse(data.toString());
     EventLogger.message(message);
+    if (message.extras?.agent_state === "init") {
+      setStatus(WebSocketClientStatus.STARTED);
+    }
     setMessages([...messages, message]);
     for (const listener of messageListeners) {
       try {

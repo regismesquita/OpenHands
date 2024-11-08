@@ -6,7 +6,7 @@ import { configureStore } from "@reduxjs/toolkit";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { RenderOptions, render } from "@testing-library/react";
 import { AppStore, RootState, rootReducer } from "./src/store";
-import { SocketProvider } from "#/context/socket";
+import { WebSocketClientProvider } from "#/context/web-socket-client";
 
 const setupStore = (preloadedState?: Partial<RootState>): AppStore =>
   configureStore({
@@ -35,7 +35,7 @@ export function renderWithProviders(
   function Wrapper({ children }: PropsWithChildren<object>): JSX.Element {
     return (
       <Provider store={store}>
-        <SocketProvider>{children}</SocketProvider>
+        <WebSocketClientProvider>{children}</WebSocketClientProvider>
       </Provider>
     );
   }

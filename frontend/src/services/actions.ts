@@ -12,8 +12,11 @@ import {
 import { setCurStatusMessage } from "#/state/statusSlice";
 import store from "#/store";
 import ActionType from "#/types/ActionType";
-import { ActionMessage, StatusMessage } from "#/types/Message";
-import { SocketMessage } from "#/types/ResponseType";
+import {
+  ActionMessage,
+  ObservationMessage,
+  StatusMessage,
+} from "#/types/Message";
 import { handleObservationMessage } from "./observations";
 
 const messageActions = {
@@ -138,22 +141,14 @@ export function handleStatusMessage(message: StatusMessage) {
   }
 }
 
-export function handleAssistantMessage(data: string | SocketMessage) {
-  let socketMessage: SocketMessage;
-
-  if (typeof data === "string") {
-    socketMessage = JSON.parse(data) as SocketMessage;
+export function handleAssistantMessage(data: Record<string, unknown>) {
+  if (data.action) {
+    handleActionMessage(data as unknown as ActionMessage);
+  } else if (data.observation) {
+    handleObservationMessage(data as unknown as ObservationMessage);
+  } else if (data.status_update) {
+    handleStatusMessage(data as unknown as StatusMessage);
   } else {
-    socketMessage = data;
-  }
-
-  if ("action" in socketMessage) {
-    handleActionMessage(socketMessage);
-  } else if ("observation" in socketMessage) {
-    handleObservationMessage(socketMessage);
-  } else if ("status_update" in socketMessage) {
-    handleStatusMessage(socketMessage);
-  } else {
-    console.error("Unknown message type", socketMessage);
+    console.error("Unknown message type", data);
   }
 }

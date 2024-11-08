@@ -21,7 +21,6 @@ import { DangerModal } from "#/components/modals/confirmation-modals/danger-moda
 import { LoadingSpinner } from "#/components/modals/LoadingProject";
 import { ModalBackdrop } from "#/components/modals/modal-backdrop";
 import { UserActions } from "#/components/user-actions";
-import { useSocket } from "#/context/socket";
 import i18n from "#/i18n";
 import { getSettings, settingsAreUpToDate } from "#/services/settings";
 import AllHandsLogo from "#/assets/branding/all-hands-logo.svg?react";
@@ -33,6 +32,10 @@ import { WaitlistModal } from "#/components/waitlist-modal";
 import { AnalyticsConsentFormModal } from "#/components/analytics-consent-form-modal";
 import { setCurrentAgentState } from "#/state/agentSlice";
 import AgentState from "#/types/AgentState";
+import {
+  useWebSocketClient,
+  WebSocketClientStatus,
+} from "#/context/web-socket-client";
 
 export const clientLoader = async ({ request }: ClientLoaderFunctionArgs) => {
   try {
@@ -135,7 +138,7 @@ type SettingsFormData = {
 };
 
 export default function MainApp() {
-  const { stop, isConnected } = useSocket();
+  const { stop, status } = useWebSocketClient();
   const navigation = useNavigation();
   const location = useLocation();
   const {
@@ -206,7 +209,7 @@ export default function MainApp() {
     if (location.pathname === "/") {
       // If the user is on the home page, we should stop the socket connection.
       // This is relevant when the user redirects here for whatever reason.
-      if (isConnected) stop();
+      if (status !== WebSocketClientStatus.STOPPED) stop();
     }
   }, [location.pathname]);
 
@@ -313,7 +316,7 @@ export default function MainApp() {
             <p className="text-xs text-[#A3A3A3]">
               To continue, connect an OpenAI, Anthropic, or other LLM account
             </p>
-            {isConnected && (
+            {status !== WebSocketClientStatus.STOPPED && (
               <p className="text-xs text-danger">
                 Changing settings during an active session will end the session
               </p>

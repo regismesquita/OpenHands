@@ -10,7 +10,7 @@ import React, { startTransition, StrictMode } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { Provider } from "react-redux";
 import posthog from "posthog-js";
-import { SocketProvider } from "./context/socket";
+import { WebSocketClientProvider } from "./context/web-socket-client";
 import "./i18n";
 import store from "./store";
 
@@ -43,12 +43,12 @@ prepareApp().then(() =>
     hydrateRoot(
       document,
       <StrictMode>
-        <SocketProvider>
+        <WebSocketClientProvider>
           <Provider store={store}>
             <RemixBrowser />
             <PosthogInit />
           </Provider>
-        </SocketProvider>
+        </WebSocketClientProvider>
       </StrictMode>,
     );
   }),

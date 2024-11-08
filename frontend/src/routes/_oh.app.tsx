@@ -9,21 +9,18 @@ import {
   useRouteLoaderData,
 } from "@remix-run/react";
 import { useDispatch, useSelector } from "react-redux";
-import WebSocket from "ws";
 import toast from "react-hot-toast";
 import { getSettings } from "#/services/settings";
 import Security from "../components/modals/security/Security";
 import { Controls } from "#/components/controls";
 import store, { RootState } from "#/store";
 import { Container } from "#/components/container";
-import ActionType from "#/types/ActionType";
 import { handleAssistantMessage } from "#/services/actions";
 import {
   addErrorMessage,
   addUserMessage,
   clearMessages,
 } from "#/state/chatSlice";
-import { useSocket } from "#/context/socket";
 import {
   getGitHubTokenCommand,
   getCloneRepoCommand,
@@ -50,6 +47,10 @@ import { FilesProvider } from "#/context/files";
 import { ErrorObservation } from "#/types/core/observations";
 import { ChatInterface } from "#/components/chat-interface";
 import { cn } from "#/utils/utils";
+import {
+  useWebSocketClient,
+  WebSocketClientStatus,
+} from "#/context/web-socket-client";
 
 interface ServerError {
   error: boolean | string;
@@ -121,8 +122,7 @@ function App() {
   const { files, importedProjectZip } = useSelector(
     (state: RootState) => state.initalQuery,
   );
-  const { start, send, setRuntimeIsInitialized, runtimeIsInitialized } =
-    useSocket();
+  const webSocketClient = useWebSocketClient();
   const { settings, token, ghToken, repo, q, lastCommit } =
     useLoaderData<typeof clientLoader>();
   const fetcher = useFetcher();
@@ -163,106 +163,94 @@ function App() {
 
   const sendInitialQuery = (query: string, base64Files: string[]) => {
     const timestamp = new Date().toISOString();
-    send(createChatMessage(query, base64Files, timestamp));
+    webSocketClient.send(createChatMessage(query, base64Files, timestamp));
   };
 
-  const handleOpen = React.useCallback(
-    (event: Event, isNewSession: boolean) => {
-      if (!isNewSession) {
-        dispatch(clearMessages());
-        dispatch(clearTerminal());
-        dispatch(clearJupyter());
-      }
-      doSendInitialQuery.current = isNewSession;
-      const initEvent = {
-        action: ActionType.INIT,
-        args: settings,
-      };
-      send(JSON.stringify(initEvent));
+  const handleStatusChange = (status: WebSocketClientStatus) => {
+    if (status !== WebSocketClientStatus.STARTED) {
+      return;
+    }
+    dispatch(clearMessages());
+    dispatch(clearTerminal());
+    dispatch(clearJupyter());
 
-      // display query in UI, but don't send it to the server
-      if (q && isNewSession) addIntialQueryToChat(q, files);
-    },
-    [settings],
-  );
+    // display query in UI, but don't send it to the server
+    if (q) addIntialQueryToChat(q, files);
+  };
 
-  const handleMessage = React.useCallback(
-    (message: MessageEvent<WebSocket.Data>) => {
-      // set token received from the server
-      const parsed = JSON.parse(message.data.toString());
-      if ("token" in parsed) {
-        fetcher.submit({ token: parsed.token }, { method: "post" });
+  const handleMessage = (message: Record<string, unknown>) => {
+    // set token received from the server
+    if (message.token) {
+      fetcher.submit({ token: message.token as string }, { method: "post" });
+      return;
+    }
+
+    if (isServerError(message)) {
+      if (message.error_code === 401) {
+        toast.error("Session expired.");
+        fetcher.submit({}, { method: "POST", action: "/end-session" });
         return;
       }
 
-      if (isServerError(parsed)) {
-        if (parsed.error_code === 401) {
-          toast.error("Session expired.");
-          fetcher.submit({}, { method: "POST", action: "/end-session" });
-          return;
-        }
-
-        if (typeof parsed.error === "string") {
-          toast.error(parsed.error);
-        } else {
-          toast.error(parsed.message);
-        }
-
-        return;
-      }
-      if (isErrorObservation(parsed)) {
-        dispatch(
-          addErrorMessage({
-            id: parsed.extras?.error_id,
-            message: parsed.message,
-          }),
-        );
-        return;
+      if (typeof message.error === "string") {
+        toast.error(message.error);
+      } else {
+        toast.error(message.message);
       }
 
-      handleAssistantMessage(message.data.toString());
+      return;
+    }
+    if (isErrorObservation(message)) {
+      dispatch(
+        addErrorMessage({
+          id: message.extras?.error_id,
+          message: message.message,
+        }),
+      );
+      return;
+    }
 
-      // handle first time connection
-      if (
-        isAgentStateChange(parsed) &&
-        parsed.extras.agent_state === AgentState.INIT
-      ) {
-        setRuntimeIsInitialized(true);
+    handleAssistantMessage(message);
 
-        // handle new session
-        if (!token) {
-          let additionalInfo = "";
-          if (ghToken && repo) {
-            send(getCloneRepoCommand(ghToken, repo));
-            additionalInfo = `Repository ${repo} has been cloned to /workspace. Please check the /workspace for files.`;
-            dispatch(clearSelectedRepository()); // reset selected repository; maybe better to move this to '/'?
-          }
-          // if there's an uploaded project zip, add it to the chat
-          else if (importedProjectZip) {
-            additionalInfo = `Files have been uploaded. Please check the /workspace for files.`;
-          }
+    // handle first time connection
+    if (
+      isAgentStateChange(message) &&
+      message.extras.agent_state === AgentState.INIT
+    ) {
+      // handle new session
+      if (!token) {
+        let additionalInfo = "";
+        if (ghToken && repo) {
+          webSocketClient.send(getCloneRepoCommand(ghToken, repo));
+          additionalInfo = `Repository ${repo} has been cloned to /workspace. Please check the /workspace for files.`;
+          dispatch(clearSelectedRepository()); // reset selected repository; maybe better to move this to '/'?
+        }
+        // if there's an uploaded project zip, add it to the chat
+        else if (importedProjectZip) {
+          additionalInfo = `Files have been uploaded. Please check the /workspace for files.`;
+        }
 
-          if (q && doSendInitialQuery.current) {
-            if (additionalInfo) {
-              sendInitialQuery(`${q}\n\n[${additionalInfo}]`, files);
-            } else {
-              sendInitialQuery(q, files);
-            }
-            dispatch(clearFiles()); // reset selected files
+        if (q && doSendInitialQuery.current) {
+          if (additionalInfo) {
+            sendInitialQuery(`${q}\n\n[${additionalInfo}]`, files);
+          } else {
+            sendInitialQuery(q, files);
           }
+          dispatch(clearFiles()); // reset selected files
         }
       }
-    },
-    [token, ghToken, repo, q, files],
-  );
+    }
+  };
 
+  /*
   const startSocketConnection = React.useCallback(() => {
     start({
-      token,
-      onOpen: handleOpen,
-      onMessage: handleMessage,
+      sessionToken: token,
+      // onOpen: handleOpen,
+      // onMessage: handleMessage,
     });
   }, [token, handleOpen, handleMessage]);
+  */
 
   useEffectOnce(() => {
     // clear and restart the socket connection
@@ -270,19 +258,24 @@ function App() {
     dispatch(clearTerminal());
     dispatch(clearJupyter());
     dispatch(clearInitialQuery()); // Clear initial query when navigating to /app
-    startSocketConnection();
+    webSocketClient.addMessageListener(handleMessage);
+    webSocketClient.addStatusChangeListener(handleStatusChange);
+    webSocketClient.start({
+      sessionToken: token,
+      ghToken,
+    });
   });
 
   React.useEffect(() => {
-    if (runtimeIsInitialized && userId && ghToken) {
+    if (webSocketClient.isStarted && userId && ghToken) {
       // Export if the user valid, this could happen mid-session so it is handled here
-      send(getGitHubTokenCommand(ghToken));
+      webSocketClient.send(getGitHubTokenCommand(ghToken));
     }
-  }, [userId, ghToken, runtimeIsInitialized]);
+  }, [userId, ghToken, webSocketClient.isStarted]);
 
   React.useEffect(() => {
     (async () => {
-      if (runtimeIsInitialized && importedProjectZip) {
+      if (webSocketClient.isStarted && importedProjectZip) {
         // upload files action
         try {
           const blob = base64ToBlob(importedProjectZip);
@@ -296,7 +289,7 @@ function App() {
         }
       }
     })();
-  }, [runtimeIsInitialized, importedProjectZip]);
+  }, [webSocketClient.isStarted, importedProjectZip]);
 
   const {
     isOpen: securityModalIsOpen,
@@ -312,7 +305,7 @@ function App() {
             className={cn(
               "w-2 h-2 rounded-full border",
               "absolute left-3 top-3",
-              runtimeIsInitialized
+              webSocketClient.isStarted
                 ? "bg-green-800 border-green-500"
                 : "bg-red-800 border-red-500",
             )}

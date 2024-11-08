@@ -5,8 +5,6 @@ import { getSettings } from "#/services/settings";
 import ActionType from "#/types/ActionType";
 import EventLogger from "#/utils/event-logger";
 
-let idSequence = 1
-
 interface WebSocketClientStartOptions {
   token: string | null;
   ghToken: string | null;
@@ -50,8 +48,7 @@ interface WebSocketClientProviderProps {
 }
 
 function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
-  const wsRef = React.useRef<WebSocket | null>(null);
-  //const [ws, setWs] = React.useState<WebSocket | null>(null);
+  const [ws, setWs] = React.useState<WebSocket | null>(null);
   const [status, setStatus] = React.useState<WebSocketClientStatus>(
     WebSocketClientStatus.STOPPED,
   );
@@ -67,7 +64,6 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
   );
 
   function send(data: Record<string, unknown>) {
-    const ws = wsRef.current;
     if (!ws) {
       EventLogger.error("WebSocket is not connected.");
       return;
@@ -84,15 +80,8 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
   }
 
   function handleClose() {
-    const ws = wsRef.current;
-    //if (ws) {
-    //    ws.removeEventListener("open", handleOpen);
-    //    ws.removeEventListener("close", handleClose);
-    //    ws.removeEventListener("error", handleError);
-    //    ws.removeEventListener("message", handleMessage);
-    //}
     setStatus(WebSocketClientStatus.STOPPED);
-    wsRef.current = null
+    setWs(null);
   }
 
   function handleError(event: Event) {
@@ -125,10 +114,8 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
   }
 
   function start(options?: WebSocketClientStartOptions) {
-    const ws = wsRef.current;
     if (ws) {
       EventLogger.warning("Overriding existing WebSocket!");
-      ws.close();
     }
 
     const baseUrl =
@@ -137,27 +124,29 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
     const token = options?.token || "NO_JWT"; // not allowed to be empty or duplicated
     const ghToken = localStorage.getItem("ghToken") || "NO_GITHUB";
 
-    setStatus(WebSocketClientStatus.STARTING)
     const newWs = new WebSocket(`${protocol}//${baseUrl}/ws`, [
       "openhands",
       token,
       ghToken,
     ]);
-    newWs.id = idSequence++
-    newWs.addEventListener("open", handleOpen);
-    newWs.addEventListener("close", handleClose);
-    newWs.addEventListener("error", handleError);
-    newWs.addEventListener("message", handleMessage);
-    wsRef.current = newWs;
+
+    // auto closes any existing ws and handles event listeners
+    setWs(newWs);
   }
 
   function stop() {
-    const ws = wsRef.current
     if (!ws) {
       EventLogger.warning("No connected WebSocket");
       return;
     }
-    ws.close()
+    if (
+      ws.readyState === WebSocket.CLOSING ||
+      ws.readyState === WebSocket.CLOSED
+    ) {
+      EventLogger.warning("WebSocket already closed");
+      return;
+    }
+    ws.close();
   }
 
   function addStatusChangeListener(listener: StatusChangeListener) {
@@ -193,6 +182,24 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
     }
   }
 
+  React.useEffect(() => {
+    // we need to add / remove listeners to / from the WS on every re-render
+    if (ws) {
+      ws.addEventListener("open", handleOpen);
+      ws.addEventListener("close", handleClose);
+      ws.addEventListener("error", handleError);
+      ws.addEventListener("message", handleMessage);
+    }
+    return () => {
+      if (ws) {
+        ws.removeEventListener("open", handleOpen);
+        ws.removeEventListener("close", handleClose);
+        ws.removeEventListener("error", handleError);
+        ws.removeEventListener("message", handleMessage);
+      }
+    };
+  });
+
   const value = React.useMemo(
     () => ({
       start,
@@ -208,7 +215,7 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
       messages,
       isStarted: status === WebSocketClientStatus.STARTED,
     }),
-    [status, messages],
+    [ws, status, messages],
   );
 
   return (

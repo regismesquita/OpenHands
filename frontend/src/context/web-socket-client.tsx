@@ -6,7 +6,7 @@ import ActionType from "#/types/ActionType";
 import EventLogger from "#/utils/event-logger";
 
 interface WebSocketClientStartOptions {
-  sessionToken: string | null;
+  token: string | null;
   ghToken: string | null;
 }
 
@@ -118,12 +118,12 @@ function WebSocketClientProvider({ children }: WebSocketClientProviderProps) {
     const baseUrl =
       import.meta.env.VITE_BACKEND_BASE_URL || window?.location.host;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const sessionToken = options?.sessionToken || "NO_JWT"; // not allowed to be empty or duplicated
+    const token = options?.token || "NO_JWT"; // not allowed to be empty or duplicated
     const ghToken = localStorage.getItem("ghToken") || "NO_GITHUB";
 
     const newWs = new WebSocket(`${protocol}//${baseUrl}/ws`, [
       "openhands",
-      sessionToken,
+      token,
       ghToken,
     ]);
 

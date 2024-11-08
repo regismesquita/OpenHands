@@ -12,7 +12,7 @@ class EventLogger {
    */
   static message(event: MessageEvent) {
     if (this.isDevMode) {
-      console.warn(JSON.stringify(JSON.parse(event.data.toString()), null, 2));
+      console.warn(JSON.stringify(event, null, 2));
     }
   }
 

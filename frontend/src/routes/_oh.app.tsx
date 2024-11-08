@@ -242,16 +242,6 @@ function App() {
     }
   };
 
-  /*
-  const startSocketConnection = React.useCallback(() => {
-    start({
-      sessionToken: token,
-      // onOpen: handleOpen,
-      // onMessage: handleMessage,
-    });
-  }, [token, handleOpen, handleMessage]);
-  */
-
   useEffectOnce(() => {
     // clear and restart the socket connection
     dispatch(clearMessages());
@@ -261,7 +251,7 @@ function App() {
     webSocketClient.addMessageListener(handleMessage);
     webSocketClient.addStatusChangeListener(handleStatusChange);
     webSocketClient.start({
-      sessionToken: token,
+      token,
       ghToken,
     });
   });
